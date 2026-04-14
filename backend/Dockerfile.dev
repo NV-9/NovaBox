@@ -1,0 +1,20 @@
+FROM rust:1.88-slim-bookworm
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    curl \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cargo install cargo-watch --locked
+
+# Bake the migration SQL into the image so the entrypoint can seed the DB
+# before the first cargo compile (sqlx query! macros need it at compile time)
+COPY migrations /migrations-seed
+COPY entrypoint-dev.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /app
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]

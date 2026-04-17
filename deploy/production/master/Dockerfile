@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 COPY backend/Cargo.toml backend/Cargo.lock ./
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo fetch --locked
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 RUN mkdir -p /build/data \
@@ -16,7 +20,9 @@ RUN mkdir -p /build/data \
          if [ -f "$migration_file" ]; then sqlite3 /build/data/novabox.db < "$migration_file"; fi; \
        done
 ENV DATABASE_URL=sqlite:///build/data/novabox.db
-RUN cargo build --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \

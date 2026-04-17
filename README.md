@@ -403,6 +403,35 @@ All endpoints under `/api/*` require `Authorization: Bearer <token>` except `/ap
 
 ---
 
+## Contributing
+
+Contributions are welcome.
+
+- Report bugs or request features via GitHub Issues.
+- Open pull requests with clear context and testing notes.
+
+Recommended workflow:
+
+1. Fork the repository and create a branch from `main`.
+2. Implement your change with focused commits.
+3. Validate locally before opening a PR:
+
+```bash
+# frontend checks
+cd frontend
+npm run build
+
+# backend checks (if Rust toolchain is installed)
+cd ../backend
+cargo check
+```
+
+4. Open a PR describing what changed, why, and how it was tested.
+
+Please keep behavior changes documented in the README when relevant (API routes, deployment flow, environment variables, or image naming).
+
+---
+
 ## License
 
-MIT
+MIT. See `LICENSE`.

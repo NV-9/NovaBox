@@ -9,10 +9,8 @@ RUN apt-get update && apt-get install -y \
 
 RUN cargo install cargo-watch --locked
 
-# Bake the migration SQL into the image so the entrypoint can seed the DB
-# before the first cargo compile (sqlx query! macros need it at compile time)
-COPY migrations /migrations-seed
-COPY entrypoint-dev.sh /entrypoint.sh
+COPY backend/migrations /migrations-seed
+COPY backend/entrypoint-dev.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 WORKDIR /app

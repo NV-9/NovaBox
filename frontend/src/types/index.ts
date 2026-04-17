@@ -1,3 +1,36 @@
+export type UserRole = 'admin' | 'user'
+
+export interface AuthUser {
+  id:          string
+  username:    string
+  role:        UserRole
+  permissions: string[]
+  settings:    Record<string, unknown>
+  created_at:  string
+}
+
+export interface AuthResponse {
+  token: string
+  user:  AuthUser
+}
+
+export const ALL_PERMISSIONS = [
+  { key: 'servers.view',       label: 'View Servers',      description: 'See the server list and details' },
+  { key: 'servers.create',     label: 'Create Servers',    description: 'Spin up new Minecraft servers' },
+  { key: 'servers.delete',     label: 'Delete Servers',    description: 'Permanently delete servers' },
+  { key: 'servers.power',      label: 'Power Control',     description: 'Start, stop, and restart servers' },
+  { key: 'servers.console',    label: 'Console',           description: 'View and send console commands' },
+  { key: 'servers.files',      label: 'File Browser',      description: 'Browse and edit server files' },
+  { key: 'servers.settings',   label: 'Server Settings',   description: 'Change server configuration' },
+  { key: 'servers.players',    label: 'Player Monitoring', description: 'View connected players' },
+  { key: 'servers.moderation', label: 'Moderation',        description: 'Whitelist, ban, and op management' },
+  { key: 'servers.modrinth',   label: 'Modrinth',          description: 'Browse and install mods' },
+  { key: 'analytics.view',     label: 'Analytics',         description: 'View analytics and metrics' },
+  { key: 'mods.browse',        label: 'Mod Browser',       description: 'Global mod browser access' },
+] as const
+
+export type Permission = typeof ALL_PERMISSIONS[number]['key']
+
 export type ServerStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
 export type ServerLoader = 'VANILLA' | 'PAPER' | 'FABRIC' | 'FORGE' | 'NEOFORGE' | 'QUILT'
 
@@ -43,17 +76,43 @@ export interface CreateServerRequest {
   show_on_status_page?: boolean
   min_memory_mb?: number
   jvm_flags?: string
+  pause_when_empty_seconds?: number
+  difficulty?: string
+  gamemode?: string
+  simulation_distance?: number
+  view_distance?: number
 }
 
 export interface RuntimeOptions {
   min_memory_mb: number | null
   jvm_flags: string | null
+  pause_when_empty_seconds: number | null
 }
 
 export interface StorageUsage {
   bytes: number
   mb: number
   gb: number
+}
+
+export interface WorldInfo {
+  difficulty: string | null
+  gamemode: string | null
+  simulation_distance: number | null
+  view_distance: number | null
+  white_list: boolean | null
+  online_mode: boolean | null
+}
+
+export interface WorldSettings {
+  difficulty: string | null
+  gamemode: string | null
+  simulation_distance: number | null
+  view_distance: number | null
+}
+
+export interface ModrinthProjects {
+  projects: string[]
 }
 
 export interface PlayerSession {
@@ -80,6 +139,7 @@ export interface AppConfig {
   velocity_secret: string
   velocity_container: string
   traefik_enabled: boolean
+  device_hostname?: string
 }
 
 export interface ServerSummary {
@@ -106,6 +166,37 @@ export interface BanEntry {
   source:  string
   expires: string
   reason:  string
+}
+
+export interface OpEntry {
+  uuid: string
+  name: string
+  level: number
+  bypassesPlayerLimit: boolean
+}
+
+export interface FileEntry {
+  name: string
+  path: string
+  is_dir: boolean
+  size: number
+  modified: string
+}
+
+export interface WorldEntry {
+  name: string
+  size: number
+}
+
+export interface BackupEntry {
+  name:       string
+  size:       number
+  created_at: number
+}
+
+export interface LogLine {
+  line: number
+  text: string
 }
 
 export interface ModrinthProject {

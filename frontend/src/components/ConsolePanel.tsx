@@ -9,6 +9,11 @@ interface Props {
   serverStatus?: string
 }
 
+const COMMAND_PREFIXES = new Set([
+  'help', 'list', 'op', 'deop', 'ban', 'pardon', 'kick', 'whitelist', 'stop', 'save-all', 'save-on', 'save-off',
+  'tp', 'gamemode', 'difficulty', 'time', 'weather', 'seed', 'say', 'tellraw', 'give', 'clear', 'effect', 'experience',
+])
+
 function colorLine(line: string): string {
   if (line.includes('[ERROR]') || line.includes('ERROR')) return 'text-red-400'
   if (line.includes('[WARN]') || line.includes('WARN')) return 'text-amber-400'
@@ -41,9 +46,19 @@ export function ConsolePanel({ serverId, serverStatus }: Props) {
   async function sendCommand(e: React.FormEvent) {
     e.preventDefault()
     if (!input.trim() || !serverId) return
+    const raw = input.trim()
+    const normalized = raw.startsWith('/') ? raw.slice(1).trim() : raw
+    const first = normalized.split(/\s+/, 1)[0]?.toLowerCase() ?? ''
+    const isLikelyCommand = COMMAND_PREFIXES.has(first)
+    const commandToSend = raw.startsWith('/') || isLikelyCommand ? normalized : `say ${normalized}`
+
     setSending(true)
     try {
-      await api.servers.command(serverId, input.trim())
+      try {
+        await api.servers.command(serverId, commandToSend)
+      } catch {
+        await api.servers.stdin(serverId, commandToSend)
+      }
       setInput('')
     } finally {
       setSending(false)

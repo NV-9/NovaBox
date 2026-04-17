@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { UserCheck, UserX, Plus, Trash2, Loader2, RefreshCw } from 'lucide-react'
+import { UserCheck, UserX, ShieldCheck, Plus, Trash2, Loader2, RefreshCw } from 'lucide-react'
 import { api } from '@/api/client'
 import { Toggle } from '@/components/Toggle'
-import type { WhitelistEntry, BanEntry } from '@/types'
+import type { WhitelistEntry, BanEntry, OpEntry } from '@/types'
 
 interface Props {
   serverId: string
@@ -11,17 +11,22 @@ interface Props {
 export function ModerationTab({ serverId }: Props) {
   const [whitelist, setWhitelist]     = useState<WhitelistEntry[]>([])
   const [bans,      setBans]          = useState<BanEntry[]>([])
+  const [ops,       setOps]           = useState<OpEntry[]>([])
   const [wlLoading, setWlLoading]     = useState(true)
   const [bansLoading, setBansLoading] = useState(true)
+  const [opsLoading, setOpsLoading]   = useState(true)
   const [wlInput,   setWlInput]       = useState('')
   const [banInput,  setBanInput]      = useState('')
   const [banReason, setBanReason]     = useState('')
+  const [opInput,   setOpInput]       = useState('')
   const [wlEnabled, setWlEnabled]     = useState(false)
   const [wlBusy,    setWlBusy]        = useState(false)
   const [banBusy,   setBanBusy]       = useState(false)
+  const [opBusy,    setOpBusy]        = useState(false)
   const [wlStateBusy, setWlStateBusy] = useState(false)
   const [wlError,   setWlError]       = useState<string | null>(null)
   const [banError,  setBanError]      = useState<string | null>(null)
+  const [opError,   setOpError]       = useState<string | null>(null)
 
   const loadWhitelist = useCallback(async () => {
     setWlLoading(true)
@@ -42,7 +47,13 @@ export function ModerationTab({ serverId }: Props) {
     } catch {}
   }, [serverId])
 
-  useEffect(() => { loadWhitelist(); loadWhitelistState(); loadBans() }, [loadWhitelist, loadWhitelistState, loadBans])
+  const loadOps = useCallback(async () => {
+    setOpsLoading(true)
+    try { setOps(await api.ops.list(serverId)) } catch {}
+    finally { setOpsLoading(false) }
+  }, [serverId])
+
+  useEffect(() => { loadWhitelist(); loadWhitelistState(); loadBans(); loadOps() }, [loadWhitelist, loadWhitelistState, loadBans, loadOps])
 
   async function setWhitelistEnabled(enabled: boolean) {
     setWlStateBusy(true)
@@ -109,8 +120,34 @@ export function ModerationTab({ serverId }: Props) {
     }
   }
 
+  async function addOp(e: React.FormEvent) {
+    e.preventDefault()
+    const name = opInput.trim()
+    if (!name) return
+    setOpBusy(true); setOpError(null)
+    try {
+      setOps(await api.ops.add(serverId, name))
+      setOpInput('')
+    } catch (err: any) {
+      setOpError(err.message)
+    } finally {
+      setOpBusy(false)
+    }
+  }
+
+  async function removeOp(name: string) {
+    setOpBusy(true); setOpError(null)
+    try {
+      setOps(await api.ops.remove(serverId, name))
+    } catch (err: any) {
+      setOpError(err.message)
+    } finally {
+      setOpBusy(false)
+    }
+  }
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-5xl">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 max-w-6xl">
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold flex items-center gap-2">
@@ -253,6 +290,73 @@ export function ModerationTab({ serverId }: Props) {
                 {entry.reason && entry.reason !== 'Banned by an operator.' && (
                   <p className="text-xs text-dark-400 mt-0.5 pl-8">{entry.reason}</p>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-nova-400" /> Operators
+            <span className="text-dark-400 font-normal">({ops.length})</span>
+          </p>
+          <button onClick={loadOps} className="btn-ghost p-1.5" title="Refresh">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <p className="text-xs text-dark-400 leading-relaxed">
+          Ops have full in-game admin permissions (level 4). Changes are written to <span className="font-mono">ops.json</span> and synced to a running server via RCON.
+        </p>
+
+        <form onSubmit={addOp} className="flex gap-2">
+          <input
+            className="input flex-1 text-sm"
+            placeholder="Player name…"
+            value={opInput}
+            onChange={e => setOpInput(e.target.value)}
+            disabled={opBusy}
+          />
+          <button
+            type="submit"
+            disabled={opBusy || !opInput.trim()}
+            className="btn-primary flex items-center gap-1.5 text-sm px-3"
+          >
+            {opBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+            Op
+          </button>
+        </form>
+
+        {opError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">{opError}</p>
+        )}
+
+        {opsLoading ? (
+          <p className="text-sm text-dark-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</p>
+        ) : ops.length === 0 ? (
+          <p className="text-sm text-dark-500">No operators configured.</p>
+        ) : (
+          <ul className="space-y-1.5 max-h-80 overflow-y-auto">
+            {ops.map((entry) => (
+              <li key={entry.name} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-dark-800/50 group">
+                <img
+                  src={`https://crafatar.com/avatars/${entry.uuid || entry.name}?size=20&overlay`}
+                  className="w-5 h-5 rounded shrink-0"
+                  alt=""
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+                <span className="text-sm font-medium flex-1">{entry.name}</span>
+                <span className="text-xs text-dark-500 mr-1">level {entry.level}</span>
+                <button
+                  onClick={() => removeOp(entry.name)}
+                  disabled={opBusy}
+                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-opacity disabled:opacity-20"
+                  title="Deop player"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </li>
             ))}
           </ul>

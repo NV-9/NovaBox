@@ -51,6 +51,11 @@ export default function NewServer() {
     mc_version: 'LATEST',
     max_players: 20,
     memory_mb: 2048,
+    difficulty: 'normal',
+    gamemode: 'survival',
+    simulation_distance: 10,
+    view_distance: 10,
+    pause_when_empty_seconds: 0,
   })
   const [mapMod, setMapMod] = useState<string | null>(null)
   const [onlineMode, setOnlineMode] = useState(true)
@@ -61,14 +66,17 @@ export default function NewServer() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim()) { setError('Server name is required'); return }
+    if (!form.name.trim()) {
+      setError('Server name is required')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const server = await api.servers.create({
         ...form,
-        port:       25565,
-        map_mod:    mapMod,
+        port: 25565,
+        map_mod: mapMod,
         online_mode: onlineMode,
       })
       navigate(`/servers/${server.id}`)
@@ -144,11 +152,7 @@ export default function NewServer() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1.5">Minecraft Version</label>
-              <select
-                className="select"
-                value={form.mc_version}
-                onChange={(e) => set('mc_version', e.target.value)}
-              >
+              <select className="select" value={form.mc_version} onChange={(e) => set('mc_version', e.target.value)}>
                 {VERSIONS.map((v) => <option key={v}>{v}</option>)}
               </select>
             </div>
@@ -166,11 +170,7 @@ export default function NewServer() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">Memory</label>
-            <select
-              className="select"
-              value={form.memory_mb}
-              onChange={(e) => set('memory_mb', parseInt(e.target.value))}
-            >
+            <select className="select" value={form.memory_mb} onChange={(e) => set('memory_mb', parseInt(e.target.value))}>
               <option value={512}>512 MB</option>
               <option value={1024}>1 GB</option>
               <option value={2048}>2 GB</option>
@@ -179,6 +179,54 @@ export default function NewServer() {
               <option value={12288}>12 GB</option>
               <option value={16384}>16 GB</option>
             </select>
+          </div>
+        </div>
+
+        <div className="card space-y-4">
+          <h2 className="font-semibold text-sm text-dark-300 uppercase tracking-wider">World & Performance</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Difficulty</label>
+              <select className="select" value={form.difficulty} onChange={(e) => set('difficulty', e.target.value)}>
+                <option value="peaceful">Peaceful</option>
+                <option value="easy">Easy</option>
+                <option value="normal">Normal</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Game Mode</label>
+              <select className="select" value={form.gamemode} onChange={(e) => set('gamemode', e.target.value)}>
+                <option value="survival">Survival</option>
+                <option value="creative">Creative</option>
+                <option value="adventure">Adventure</option>
+                <option value="spectator">Spectator</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Simulation Distance</label>
+              <input type="range" min={2} max={32} value={form.simulation_distance} onChange={(e) => set('simulation_distance', parseInt(e.target.value))} className="w-full" />
+              <p className="text-xs text-dark-400 mt-1">{form.simulation_distance} chunks</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">View Distance</label>
+              <input type="range" min={2} max={32} value={form.view_distance} onChange={(e) => set('view_distance', parseInt(e.target.value))} className="w-full" />
+              <p className="text-xs text-dark-400 mt-1">{form.view_distance} chunks</p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Pause When Empty</label>
+            <input
+              type="number"
+              className="input"
+              min={0}
+              max={3600}
+              value={form.pause_when_empty_seconds}
+              onChange={(e) => set('pause_when_empty_seconds', parseInt(e.target.value) || 0)}
+            />
+            <p className="text-xs text-dark-400 mt-1">Seconds after the last player leaves before the server pauses. Set to 0 to disable.</p>
           </div>
         </div>
 

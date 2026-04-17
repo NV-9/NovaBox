@@ -23,7 +23,7 @@ export default function Servers() {
         </div>
         <Link to="/servers/new" className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" />
-          New Server
+          Add Server
         </Link>
       </div>
 
@@ -40,8 +40,8 @@ export default function Servers() {
           <p className="text-sm text-dark-400 mb-6">
             Deploy a new Minecraft server in seconds.
           </p>
-          <Link to="/servers/new" className="btn-primary inline-flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Create Your First Server
+            <Link to="/servers/new" className="btn-primary inline-flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Your First Server
           </Link>
         </div>
       ) : (

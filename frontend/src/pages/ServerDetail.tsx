@@ -5,16 +5,23 @@ import { useServer } from '@/hooks/useServers'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConsolePanel } from '@/components/ConsolePanel'
 import { api } from '@/api/client'
-import { OverviewTab }    from './server/OverviewTab'
+import { useAuth } from '@/context/AuthContext'
+import { OverviewTab }    from './server/OverviewTab.tsx'
 import { PlayersTab }     from './server/PlayersTab'
 import { MapTab }         from './server/MapTab'
+import { ModrinthTab }    from './server/ModrinthTab'
 import { SettingsTab }    from './server/SettingsTab'
 import { ModerationTab }  from './server/ModerationTab'
-import type { MetricPoint, PlayerSession, CreateServerRequest, AppConfig, StorageUsage } from '@/types'
+import { MembersTab }     from './server/MembersTab'
+import { FilesTab }       from './server/FilesTab'
+import { LogsTab }        from './server/LogsTab'
+import { BackupsTab }     from './server/BackupsTab'
+import type { MetricPoint, PlayerSession, CreateServerRequest, AppConfig, StorageUsage, WorldInfo, WorldSettings } from '@/types'
 
-type Tab = 'overview' | 'console' | 'players' | 'moderation' | 'map' | 'settings'
+type Tab = 'overview' | 'console' | 'players' | 'moderation' | 'members' | 'files' | 'logs' | 'backups' | 'map' | 'modrinth' | 'settings'
 
 export default function ServerDetail() {
+  const { can } = useAuth()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { server, loading, refresh } = useServer(id!)
@@ -22,14 +29,19 @@ export default function ServerDetail() {
   const [metrics,       setMetrics]       = useState<MetricPoint[]>([])
   const [sessions,      setSessions]      = useState<PlayerSession[]>([])
   const [storage,       setStorage]       = useState<StorageUsage | null>(null)
+  const [worldInfo,     setWorldInfo]     = useState<WorldInfo | null>(null)
+  const [worldSettings, setWorldSettings] = useState<WorldSettings | null>(null)
   const [appConfig,     setAppConfig]     = useState<AppConfig | null>(null)
   const [tab,           setTab]           = useState<Tab>('overview')
   const [actionLoading, setActionLoading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const [settingsForm,  setSettingsForm]  = useState<Partial<CreateServerRequest>>({})
-  const [settingsSaving, setSettingsSaving] = useState(false)
-  const [settingsSaved,  setSettingsSaved]  = useState(false)
+  const [settingsForm,    setSettingsForm]    = useState<Partial<CreateServerRequest>>({})
+  const [settingsSaving,  setSettingsSaving]  = useState(false)
+  const [settingsSaved,   setSettingsSaved]   = useState(false)
+  const [filesDirty,      setFilesDirty]      = useState(false)
+  const [mapSwitchPending, setMapSwitchPending] = useState(false)
+  const [mapSwitchError,   setMapSwitchError]   = useState<string | null>(null)
 
   useEffect(() => {
     if (!server) return
@@ -38,6 +50,7 @@ export default function ServerDetail() {
       description:         server.description,
       max_players:         server.max_players,
       memory_mb:           server.memory_mb,
+      map_mod:             server.map_mod,
       online_mode:         server.online_mode,
       auto_start:          server.auto_start,
       auto_start_delay:    server.auto_start_delay,
@@ -46,17 +59,37 @@ export default function ServerDetail() {
       show_on_status_page: server.show_on_status_page,
       min_memory_mb:       undefined,
       jvm_flags:           undefined,
+      pause_when_empty_seconds: undefined,
+      difficulty:          undefined,
+      gamemode:            undefined,
+      simulation_distance: undefined,
+      view_distance:       undefined,
     })
   }, [server?.id])
 
   useEffect(() => {
     if (!id) return
     api.servers.runtimeOptions(id)
-      .then((opts) => {
-        setSettingsForm((f) => ({
+      .then(opts => setSettingsForm(f => ({
+        ...f,
+        min_memory_mb:            opts.min_memory_mb ?? undefined,
+        jvm_flags:                opts.jvm_flags ?? undefined,
+        pause_when_empty_seconds: opts.pause_when_empty_seconds ?? undefined,
+      })))
+      .catch(() => {})
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    api.servers.worldSettings(id)
+      .then(opts => {
+        setWorldSettings(opts)
+        setSettingsForm(f => ({
           ...f,
-          min_memory_mb: opts.min_memory_mb ?? undefined,
-          jvm_flags: opts.jvm_flags ?? undefined,
+          difficulty:          opts.difficulty ?? undefined,
+          gamemode:            opts.gamemode ?? undefined,
+          simulation_distance: opts.simulation_distance ?? undefined,
+          view_distance:       opts.view_distance ?? undefined,
         }))
       })
       .catch(() => {})
@@ -68,6 +101,7 @@ export default function ServerDetail() {
       api.metrics.history(id, 6).then(setMetrics).catch(() => {})
       api.players.online(id).then(setSessions).catch(() => setSessions([]))
       api.servers.storage(id).then(setStorage).catch(() => setStorage(null))
+      api.servers.worldInfo(id).then(setWorldInfo).catch(() => setWorldInfo(null))
     }
     fetch()
     const t = setInterval(fetch, 10_000)
@@ -85,21 +119,55 @@ export default function ServerDetail() {
 
   async function deleteServer() {
     await api.servers.delete(id!)
-    navigate('/servers')
+    navigate('/')
+  }
+
+  async function performSettingsSave() {
+    await api.servers.settings(id!, settingsForm)
+    await api.servers.setWorldSettings(id!, {
+      difficulty:          settingsForm.difficulty ?? null,
+      gamemode:            settingsForm.gamemode ?? null,
+      simulation_distance: settingsForm.simulation_distance ?? null,
+      view_distance:       settingsForm.view_distance ?? null,
+    })
+    await api.servers.setRuntimeOptions(id!, {
+      min_memory_mb:            settingsForm.min_memory_mb ?? null,
+      jvm_flags:                settingsForm.jvm_flags?.trim() ? settingsForm.jvm_flags.trim() : null,
+      pause_when_empty_seconds: settingsForm.pause_when_empty_seconds ?? null,
+    })
   }
 
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault()
+    if (server && settingsForm.map_mod !== server.map_mod) {
+      setMapSwitchPending(true)
+      return
+    }
     setSettingsSaving(true)
     try {
-      await api.servers.settings(id!, settingsForm)
-      await api.servers.setRuntimeOptions(id!, {
-        min_memory_mb: settingsForm.min_memory_mb ?? null,
-        jvm_flags: settingsForm.jvm_flags?.trim() ? settingsForm.jvm_flags.trim() : null,
-      })
+      await performSettingsSave()
       setSettingsSaved(true)
       refresh()
       setTimeout(() => setSettingsSaved(false), 2000)
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  async function confirmMapSwitch() {
+    setMapSwitchPending(false)
+    setMapSwitchError(null)
+    setSettingsSaving(true)
+    try {
+      await performSettingsSave()
+      await api.servers.applyMapSwitch(id!)
+      await api.servers.start(id!)
+      setSettingsSaved(true)
+      refresh()
+      setTab('overview')
+      setTimeout(() => setSettingsSaved(false), 2500)
+    } catch (err: any) {
+      setMapSwitchError(err.message ?? 'Map switch failed')
     } finally {
       setSettingsSaving(false)
     }
@@ -121,7 +189,7 @@ export default function ServerDetail() {
     return (
       <div className="p-6">
         <p className="text-dark-400">Server not found.</p>
-        <Link to="/servers" className="btn-ghost mt-4 inline-flex">Back to Servers</Link>
+        <Link to="/" className="btn-ghost mt-4 inline-flex">Back to Dashboard</Link>
       </div>
     )
   }
@@ -137,19 +205,72 @@ export default function ServerDetail() {
   const isTransitioning = server.status === 'starting' || server.status === 'stopping'
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview',    label: 'Overview' },
-    { id: 'console',     label: 'Console' },
-    { id: 'players',     label: 'Players' },
-    { id: 'moderation',  label: 'Moderation' },
-    ...(server.map_mod ? [{ id: 'map' as Tab, label: 'Map' }] : []),
-    { id: 'settings',    label: 'Settings' },
+    { id: 'overview',   label: 'Overview' },
+    ...(can('servers.console')    ? [{ id: 'console'    as Tab, label: 'Console' }]    : []),
+    ...(can('servers.players')    ? [{ id: 'players'    as Tab, label: 'Players' }]    : []),
+    ...(can('servers.modrinth')   ? [{ id: 'modrinth'   as Tab, label: 'Modrinth' }]   : []),
+    ...(can('servers.moderation') ? [{ id: 'moderation' as Tab, label: 'Moderation' }] : []),
+    ...(can('servers.moderation') ? [{ id: 'members'    as Tab, label: 'Members' }]    : []),
+    ...(can('servers.files')      ? [{ id: 'files'      as Tab, label: 'Files' }]      : []),
+    ...(can('servers.console')    ? [{ id: 'logs'       as Tab, label: 'Logs' }]       : []),
+    ...(can('servers.files')      ? [{ id: 'backups'    as Tab, label: 'Backups' }]    : []),
+    ...(server.map_mod && server.status === 'running' ? [{ id: 'map' as Tab, label: 'Map' }] : []),
+    ...(can('servers.settings')   ? [{ id: 'settings'   as Tab, label: 'Settings' }]   : []),
   ]
+
+  function selectTab(next: Tab) {
+    if (tab === 'files' && next !== 'files' && filesDirty) {
+      const leave = confirm('You have unsaved file changes. Leave Files tab and discard them?')
+      if (!leave) return
+      setFilesDirty(false)
+    }
+    setTab(next)
+  }
 
   return (
     <div className="p-6 space-y-5">
+
+      {mapSwitchPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-dark-card border border-dark-border rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+            <h2 className="text-base font-bold">Switch Live Map?</h2>
+            <p className="text-sm text-dark-400 leading-relaxed">
+              Changing the live map mod requires the server to be stopped. The existing container
+              will be recreated and old map plugin data will be permanently deleted. The server
+              will restart automatically with the new configuration.
+            </p>
+            {mapSwitchError && (
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                {mapSwitchError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMapSwitchPending(false)
+                  setS('map_mod', server!.map_mod)
+                }}
+                className="btn-ghost text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmMapSwitch}
+                disabled={settingsSaving}
+                className="px-4 py-2 rounded-lg bg-nova-600 text-white text-sm hover:bg-nova-500 transition-colors disabled:opacity-50"
+              >
+                {settingsSaving ? 'Applying…' : 'Switch & Restart'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4">
-          <Link to="/servers" className="btn-ghost p-2 mt-0.5">
+        <div className="flex items-start gap-3">
+          <Link to="/" className="btn-ghost p-2 mt-0.5">
             <ChevronLeft className="w-4 h-4" />
           </Link>
           <div>
@@ -164,13 +285,13 @@ export default function ServerDetail() {
         </div>
 
         <div className="flex gap-2">
-          {isStopped && (
+          {can('servers.power') && isStopped && (
             <button onClick={() => action(() => api.servers.start(server.id))} disabled={actionLoading} className="btn-primary flex items-center gap-2">
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
               Start
             </button>
           )}
-          {isRunning && (
+          {can('servers.power') && isRunning && (
             <>
               <button onClick={() => action(() => api.servers.restart(server.id))} disabled={actionLoading} className="btn-ghost flex items-center gap-2">
                 <RotateCcw className="w-4 h-4" /> Restart
@@ -183,7 +304,7 @@ export default function ServerDetail() {
               </button>
             </>
           )}
-          {isTransitioning && (
+          {can('servers.power') && isTransitioning && (
             <button disabled className="btn-ghost flex items-center gap-2 opacity-50">
               <Loader2 className="w-4 h-4 animate-spin" />
               {server.status === 'starting' ? 'Starting…' : 'Stopping…'}
@@ -192,12 +313,12 @@ export default function ServerDetail() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-dark-border">
-        {tabs.map((t) => (
+      <div className="flex gap-1 border-b border-dark-border overflow-x-auto">
+        {tabs.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm border-b-2 transition-colors -mb-px ${
+            onClick={() => selectTab(t.id)}
+            className={`px-4 py-2 text-sm border-b-2 transition-colors -mb-px whitespace-nowrap ${
               tab === t.id
                 ? 'border-nova-500 text-nova-400 font-medium'
                 : 'border-transparent text-dark-400 hover:text-white'
@@ -214,11 +335,9 @@ export default function ServerDetail() {
           metrics={metrics}
           sessions={sessions}
           storage={storage}
+          worldInfo={worldInfo}
           appConfig={appConfig}
           connectAddress={connectAddress}
-          confirmDelete={confirmDelete}
-          onConfirmDelete={setConfirmDelete}
-          onDelete={deleteServer}
         />
       )}
 
@@ -228,18 +347,20 @@ export default function ServerDetail() {
         </div>
       )}
 
-      {tab === 'players' && <PlayersTab serverId={server.id} sessions={sessions} />}
-
+      {tab === 'players'    && <PlayersTab serverId={server.id} sessions={sessions} />}
+      {tab === 'modrinth'   && <ModrinthTab serverId={server.id} loader={server.loader} mcVersion={server.mc_version} />}
       {tab === 'moderation' && <ModerationTab serverId={server.id} />}
-
-      {tab === 'map' && (
-        <MapTab server={server} shortId={shortId} appConfig={appConfig} />
-      )}
+      {tab === 'members'    && <MembersTab serverId={server.id} />}
+      {tab === 'files'      && <FilesTab serverId={server.id} serverStatus={server.status} onDirtyChange={setFilesDirty} />}
+      {tab === 'logs'       && <LogsTab serverId={server.id} />}
+      {tab === 'backups'    && <BackupsTab serverId={server.id} />}
+      {tab === 'map'        && <MapTab server={server} shortId={shortId} appConfig={appConfig} />}
 
       {tab === 'settings' && (
         <SettingsTab
           server={server}
           form={settingsForm}
+          worldSettings={worldSettings}
           saving={settingsSaving}
           saved={settingsSaved}
           confirmDelete={confirmDelete}

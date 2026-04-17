@@ -1,14 +1,16 @@
-import { Loader2, Save, Settings, FolderOpen, Shield, RefreshCw, Clock, Globe } from 'lucide-react'
+import { Clock, FolderOpen, Globe, Loader2, Map, RefreshCw, Save, Settings, Shield } from 'lucide-react'
 import { format } from 'date-fns'
 import { Toggle } from '@/components/Toggle'
 import { SettingRow } from '@/components/SettingRow'
 import { InfoRow } from '@/components/InfoRow'
 import { Trash2 } from 'lucide-react'
 import type { Server, CreateServerRequest } from '@/types'
+import type { WorldSettings } from '@/types'
 
 interface Props {
   server:          Server
   form:            Partial<CreateServerRequest>
+  worldSettings:   WorldSettings | null
   saving:          boolean
   saved:           boolean
   confirmDelete:   boolean
@@ -19,7 +21,7 @@ interface Props {
 }
 
 export function SettingsTab({
-  server, form, saving, saved, confirmDelete,
+  server, form, worldSettings, saving, saved, confirmDelete,
   onFormChange, onSave, onConfirmDelete, onDelete,
 }: Props) {
   return (
@@ -107,6 +109,34 @@ export function SettingsTab({
         </SettingRow>
       </div>
 
+      <div className="card space-y-3">
+        <p className="text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+          <Map className="w-3.5 h-3.5" /> Live Map
+        </p>
+        <p className="text-xs text-dark-400">Applied on next server start. Access via <span className="font-mono">map.&lt;server-id&gt;.domain</span>.</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { value: null,      label: 'None',    description: 'No live map' },
+            { value: 'BLUEMAP', label: 'BlueMap', description: 'Modern 3D map — all server types' },
+            { value: 'DYNMAP',  label: 'Dynmap',  description: 'Classic 2D/3D map — Paper / Bukkit only' },
+          ] as const).map((m) => (
+            <button
+              key={m.label}
+              type="button"
+              onClick={() => onFormChange('map_mod', m.value)}
+              className={`text-left p-3 rounded-lg border transition-colors ${
+                (form.map_mod ?? server.map_mod) === m.value
+                  ? 'border-nova-500 bg-nova-600/10'
+                  : 'border-dark-border hover:border-dark-500'
+              }`}
+            >
+              <p className="font-medium text-sm">{m.label}</p>
+              <p className="text-xs text-dark-400 mt-0.5 leading-snug">{m.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="card">
         <p className="text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
           <RefreshCw className="w-3.5 h-3.5" /> Lifecycle
@@ -124,6 +154,69 @@ export function SettingsTab({
         )}
         <SettingRow label="Crash Detection" description="Automatically restart the server after a crash (up to 3 times).">
           <Toggle value={form.crash_detection ?? true} onChange={v => onFormChange('crash_detection', v)} />
+        </SettingRow>
+        <SettingRow label="Pause When Empty" description="Freeze the server after all players leave to save CPU and RAM.">
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              className="input w-24 text-right"
+              min={0}
+              max={3600}
+              value={form.pause_when_empty_seconds ?? 0}
+              onChange={e => onFormChange('pause_when_empty_seconds', parseInt(e.target.value) || 0)}
+            />
+            <span className="text-sm text-dark-400">s</span>
+          </div>
+        </SettingRow>
+      </div>
+
+      <div className="card">
+        <p className="text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+          <FolderOpen className="w-3.5 h-3.5" /> World Settings
+        </p>
+        <SettingRow label="Difficulty" description="Controls mob behavior, damage, and survival pressure.">
+          <select className="select w-40" value={form.difficulty ?? worldSettings?.difficulty ?? ''} onChange={e => onFormChange('difficulty', e.target.value)}>
+            <option value="">Default</option>
+            <option value="peaceful">Peaceful</option>
+            <option value="easy">Easy</option>
+            <option value="normal">Normal</option>
+            <option value="hard">Hard</option>
+          </select>
+        </SettingRow>
+        <SettingRow label="Game Mode" description="Default spawn mode for players on this server.">
+          <select className="select w-40" value={form.gamemode ?? worldSettings?.gamemode ?? ''} onChange={e => onFormChange('gamemode', e.target.value)}>
+            <option value="">Default</option>
+            <option value="survival">Survival</option>
+            <option value="creative">Creative</option>
+            <option value="adventure">Adventure</option>
+            <option value="spectator">Spectator</option>
+          </select>
+        </SettingRow>
+        <SettingRow label="Simulation Distance" description="How many chunks remain actively simulated around players.">
+          <div className="flex items-center gap-3 w-full max-w-xs">
+            <input
+              type="range"
+              min={2}
+              max={32}
+              value={form.simulation_distance ?? worldSettings?.simulation_distance ?? 10}
+              onChange={e => onFormChange('simulation_distance', parseInt(e.target.value))}
+              className="flex-1"
+            />
+            <span className="text-sm text-dark-400 w-10 text-right">{form.simulation_distance ?? worldSettings?.simulation_distance ?? 10}</span>
+          </div>
+        </SettingRow>
+        <SettingRow label="View Distance" description="How far players can see terrain and entities.">
+          <div className="flex items-center gap-3 w-full max-w-xs">
+            <input
+              type="range"
+              min={2}
+              max={32}
+              value={form.view_distance ?? worldSettings?.view_distance ?? 10}
+              onChange={e => onFormChange('view_distance', parseInt(e.target.value))}
+              className="flex-1"
+            />
+            <span className="text-sm text-dark-400 w-10 text-right">{form.view_distance ?? worldSettings?.view_distance ?? 10}</span>
+          </div>
         </SettingRow>
       </div>
 

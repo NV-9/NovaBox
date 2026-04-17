@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { format, formatDuration, intervalToDuration } from 'date-fns'
 import { api } from '@/api/client'
-import type { PlayerSession } from '@/types'
+import type { PlayerSession, ServerSummary } from '@/types'
 
 interface Props {
   serverId: string
@@ -17,6 +17,7 @@ function duration(seconds: number | null): string {
 
 export function PlayersTab({ serverId, sessions }: Props) {
   const [history, setHistory]     = useState<PlayerSession[]>([])
+  const [summary, setSummary]     = useState<ServerSummary | null>(null)
   const [loading, setLoading]     = useState(true)
   const [page, setPage]           = useState(0)
   const [hasMore, setHasMore]     = useState(true)
@@ -38,6 +39,10 @@ export function PlayersTab({ serverId, sessions }: Props) {
 
   useEffect(() => { setPage(0); load(0) }, [load])
 
+  useEffect(() => {
+    api.metrics.summary(serverId).then(setSummary).catch(() => setSummary(null))
+  }, [serverId])
+
   function loadMore() {
     const next = page + 1
     setPage(next)
@@ -46,6 +51,25 @@ export function PlayersTab({ serverId, sessions }: Props) {
 
   return (
     <div className="space-y-4 max-w-3xl">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="card py-3">
+          <p className="text-xs text-dark-400">Online Now</p>
+          <p className="text-xl font-bold">{sessions.length}</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs text-dark-400">Total Sessions</p>
+          <p className="text-xl font-bold">{summary?.total_sessions ?? '—'}</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs text-dark-400">Unique Players</p>
+          <p className="text-xl font-bold">{summary?.unique_players ?? '—'}</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs text-dark-400">Peak Concurrent</p>
+          <p className="text-xl font-bold">{summary?.peak_players ?? '—'}</p>
+        </div>
+      </div>
+
       <div className="card">
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-medium">Online Now</p>

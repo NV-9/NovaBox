@@ -52,6 +52,7 @@ Environment variables are read from `deploy/local/.env` (copy from `.env.example
 | `CARGO_CACHE_PATH` | Cargo registry cache (speeds up backend rebuilds) | `../../data/cargo-cache` |
 | `DOMAIN` | Base domain for per-server subdomains | `lvh.me` |
 | `VELOCITY_API_SECRET` | Shared secret for the Velocity HTTP plugin | *(empty)* |
+| `VELOCITY_PLUGIN_JAR` | Local path to compiled Velocity plugin jar mounted into proxy | `../../velocity-plugin/target/novabox-velocity-1.0.0.jar` |
 
 Runtime variables injected into the backend container:
 
@@ -250,6 +251,11 @@ Fabric servers work with Velocity modern forwarding out of the box.
 The backend recompiles automatically via `cargo-watch` inside the dev container. The frontend uses Vite HMR.
 
 ```bash
+# Build the local Velocity plugin jar (needed for the local compose mount)
+cd ../../velocity-plugin
+mvn package -DskipTests
+cd ../deploy/local
+
 # Rebuild Velocity image after plugin changes
 docker compose build velocity
 docker compose up -d velocity
@@ -275,25 +281,6 @@ Built images:
 - `ghcr.io/NV-9/novabox-master`
 - `ghcr.io/NV-9/novabox-panel`
 - `ghcr.io/NV-9/novabox-velocity`
-
-### Local Tag-and-Push Helper
-
-Use the local helper script to create a release commit only when needed, create/reuse the tag, and push `main` plus the tag:
-
-```bat
-call .\release-tag-local.bat v1.0.0
-```
-
-Optional commit message:
-
-```bat
-call .\release-tag-local.bat v1.0.0 "chore: release v1.0.0"
-```
-
-Notes:
-
-- The script is local-only and ignored by git.
-- If there are no local changes, it skips commit and just tags/pushes.
 
 ### Project Layout
 

@@ -6,4 +6,4 @@ COPY velocity-plugin/src ./src
 RUN mvn package -q -DskipTests
 
 FROM itzg/mc-proxy:latest
-COPY --from=build /build/target/novabox-velocity-1.0.0.jar /server/plugins/novabox-velocity.jar
+COPY --from=build /build/target/*.jar /server/plugins/novabox-velocity.jar

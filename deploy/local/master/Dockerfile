@@ -9,10 +9,5 @@ RUN apt-get update && apt-get install -y \
 
 RUN cargo install cargo-watch --locked
 
-COPY backend/migrations /migrations-seed
-COPY backend/entrypoint-dev.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 WORKDIR /app
 EXPOSE 8080
-ENTRYPOINT ["/entrypoint.sh"]

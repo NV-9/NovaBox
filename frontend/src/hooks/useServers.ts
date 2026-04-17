@@ -2,7 +2,19 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/api/client'
 import type { Server } from '@/types'
 
-export function useServers() {
+interface UseServersOptions {
+  poll?: boolean
+  pollIntervalMs?: number
+  includeLiveCounts?: boolean
+}
+
+export function useServers(options: UseServersOptions = {}) {
+  const {
+    poll = true,
+    pollIntervalMs = 10_000,
+    includeLiveCounts = true,
+  } = options
+
   const [servers, setServers] = useState<Server[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,7 +50,7 @@ export function useServers() {
   const load = useCallback(async () => {
     try {
       const data = await api.servers.list()
-      const withLiveCounts = await refreshLiveCounts(data)
+      const withLiveCounts = includeLiveCounts ? await refreshLiveCounts(data) : data
       setServers(withLiveCounts)
       setError(null)
     } catch (e: any) {
@@ -46,13 +58,14 @@ export function useServers() {
     } finally {
       setLoading(false)
     }
-  }, [refreshLiveCounts])
+  }, [refreshLiveCounts, includeLiveCounts])
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 10_000)
+    if (!poll) return
+    const interval = setInterval(load, pollIntervalMs)
     return () => clearInterval(interval)
-  }, [load])
+  }, [load, poll, pollIntervalMs])
 
   return { servers, loading, error, refresh: load }
 }

@@ -7,3 +7,5 @@ Thumbs.db
 data/
 servers/
 cargo-cache/
+
+release-tag-local.bat

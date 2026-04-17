@@ -1,0 +1,19 @@
+.git
+.gitignore
+.github
+
+.env
+*.env
+
+# Large runtime/dev data that should never be sent to build context
+data/
+servers/
+cargo-cache/
+
+# Build outputs and dependency folders
+**/target/
+**/node_modules/
+frontend/dist/
+
+# Local helper scripts
+*-local.bat

@@ -28,7 +28,7 @@ NovaBox turns any server, NAS, or PC into a self-hosted Minecraft hosting platfo
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/novabox
+git clone https://github.com/NV-9/NovaBox
 cd novabox/deploy/local
 
 docker network create novabox-mc-net-dev
@@ -275,6 +275,25 @@ Built images:
 - `ghcr.io/NV-9/novabox-master`
 - `ghcr.io/NV-9/novabox-panel`
 - `ghcr.io/NV-9/novabox-velocity`
+
+### Local Tag-and-Push Helper
+
+Use the local helper script to create a release commit only when needed, create/reuse the tag, and push `main` plus the tag:
+
+```bat
+call .\release-tag-local.bat v1.0.0
+```
+
+Optional commit message:
+
+```bat
+call .\release-tag-local.bat v1.0.0 "chore: release v1.0.0"
+```
+
+Notes:
+
+- The script is local-only and ignored by git.
+- If there are no local changes, it skips commit and just tags/pushes.
 
 ### Project Layout
 

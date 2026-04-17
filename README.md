@@ -280,7 +280,7 @@ novabox/
 │   ├── migrations/
 │   │   ├── 001_init.sql       servers, player_sessions, metrics, backups, mods
 │   │   └── 002_server_members.sql  Per-server access control list
-│   └── Dockerfile.dev
+│   └── entrypoint-dev.sh
 ├── frontend/                  React 18 + TypeScript + Vite + Tailwind
 │   └── src/
 │       ├── App.tsx            Route tree, AuthGuard, PublicAuthGuard
@@ -314,12 +314,24 @@ novabox/
 │           └── SettingsTab.tsx
 ├── velocity-plugin/           Java / Maven — Velocity HTTP API plugin
 │   ├── pom.xml
-│   ├── Dockerfile.velocity    Multi-stage: Maven build → itzg/mc-proxy
 │   └── src/
 └── deploy/
-    └── local/
-        ├── docker-compose.yml
-        └── .env.example
+  ├── local/
+  │   ├── docker-compose.yml
+  │   ├── .env.example
+  │   ├── master/
+  │   │   └── Dockerfile
+  │   ├── panel/
+  │   │   └── Dockerfile
+  │   └── velocity/
+  │       └── Dockerfile
+  └── production/
+    ├── master/
+    │   └── Dockerfile
+    ├── panel/
+    │   └── Dockerfile
+    └── velocity/
+      └── Dockerfile
 ```
 
 ---

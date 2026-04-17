@@ -93,7 +93,6 @@ services:
       - NOVABOX_API_PORT=7000
       - NOVABOX_API_SECRET=${VELOCITY_API_SECRET:-}
     volumes:
-      - ${VELOCITY_PLUGIN_JAR:-../../velocity-plugin/target/novabox-velocity-1.0.0.jar}:/server/plugins/novabox-velocity.jar:ro
       - ${DATA_PATH:-../../data}/velocity.toml:/server/velocity.toml
       - ${DATA_PATH:-../../data}/forwarding.secret:/server/forwarding.secret
       - ${DATA_PATH:-../../data}/velocity-data:/server/data

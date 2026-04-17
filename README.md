@@ -52,7 +52,6 @@ Environment variables are read from `deploy/local/.env` (copy from `.env.example
 | `CARGO_CACHE_PATH` | Cargo registry cache (speeds up backend rebuilds) | `../../data/cargo-cache` |
 | `DOMAIN` | Base domain for per-server subdomains | `lvh.me` |
 | `VELOCITY_API_SECRET` | Shared secret for the Velocity HTTP plugin | *(empty)* |
-| `VELOCITY_PLUGIN_JAR` | Local path to compiled Velocity plugin jar mounted into proxy | `../../velocity-plugin/target/novabox-velocity-1.0.0.jar` |
 
 Runtime variables injected into the backend container:
 
@@ -251,11 +250,6 @@ Fabric servers work with Velocity modern forwarding out of the box.
 The backend recompiles automatically via `cargo-watch` inside the dev container. The frontend uses Vite HMR.
 
 ```bash
-# Build the local Velocity plugin jar (needed for the local compose mount)
-cd ../../velocity-plugin
-mvn package -DskipTests
-cd ../deploy/local
-
 # Rebuild Velocity image after plugin changes
 docker compose build velocity
 docker compose up -d velocity

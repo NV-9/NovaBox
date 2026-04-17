@@ -34,12 +34,13 @@ services:
       - ../../backend:/app
       - ${DATA_PATH:-../../data}:/app/data
       - ${SERVERS_HOST_PATH:-../../data/servers}:/servers
-      - ${CARGO_CACHE_PATH:-../../data/cargo-cache}:/usr/local/cargo/registry
+      - novabox-cargo:/usr/local/cargo
+      - novabox-target:/app/target
     environment:
       - DATABASE_URL=sqlite:///app/data/novabox.db
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
-      - CARGO_TARGET_DIR=/app/data/target
+      - CARGO_TARGET_DIR=/app/target
       - SERVERS_HOST_PATH=${SERVERS_HOST_PATH}
       - DOCKER_NETWORK=novabox-mc-net-dev
       - COMPOSE_STACK_NAME=novabox-local
@@ -102,3 +103,7 @@ networks:
   novabox-mc-net-dev:
     external: true
     name: novabox-mc-net-dev
+
+volumes:
+  novabox-cargo:
+  novabox-target:

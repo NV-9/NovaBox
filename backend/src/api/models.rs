@@ -136,6 +136,16 @@ pub struct CreateServerRequest {
     pub shutdown_timeout: i64,
     #[serde(default)]
     pub show_on_status_page: bool,
+    #[serde(default)]
+    pub difficulty: Option<String>,
+    #[serde(default)]
+    pub gamemode: Option<String>,
+    #[serde(default)]
+    pub simulation_distance: Option<i64>,
+    #[serde(default)]
+    pub view_distance: Option<i64>,
+    #[serde(default)]
+    pub pause_when_empty_seconds: Option<i64>,
 }
 
 fn default_loader()           -> String { "VANILLA".to_string() }

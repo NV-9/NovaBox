@@ -19,11 +19,18 @@ impl RconClient {
     }
 
     async fn authenticate(&mut self, password: &str) -> Result<()> {
-        self.send_packet(SERVERDATA_AUTH, password).await?;
-        let (id, _ptype, _body) = self.read_packet().await?;
-        if id == -1 {
-            bail!("RCON authentication failed: wrong password");
+        let auth_id = self.send_packet(SERVERDATA_AUTH, password).await?;
+
+        loop {
+            let (id, _ptype, _body) = self.read_packet().await?;
+            if id == -1 {
+                bail!("RCON authentication failed: wrong password");
+            }
+            if id == auth_id {
+                break;
+            }
         }
+
         Ok(())
     }
 
@@ -31,14 +38,23 @@ impl RconClient {
         let id = self.request_id;
         self.request_id += 1;
         self.send_raw_packet(id, SERVERDATA_EXECCOMMAND, cmd).await?;
-        let (_id, _ptype, body) = self.read_packet().await?;
-        Ok(body)
+
+        loop {
+            let (resp_id, _ptype, body) = self.read_packet().await?;
+            if resp_id == -1 {
+                bail!("RCON command failed: authentication dropped");
+            }
+            if resp_id == id {
+                return Ok(body);
+            }
+        }
     }
 
-    async fn send_packet(&mut self, ptype: i32, body: &str) -> Result<()> {
+    async fn send_packet(&mut self, ptype: i32, body: &str) -> Result<i32> {
         let id = self.request_id;
         self.request_id += 1;
-        self.send_raw_packet(id, ptype, body).await
+        self.send_raw_packet(id, ptype, body).await?;
+        Ok(id)
     }
 
     async fn send_raw_packet(&mut self, id: i32, ptype: i32, body: &str) -> Result<()> {

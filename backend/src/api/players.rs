@@ -1,19 +1,18 @@
 use crate::AppState;
 use crate::api::models::*;
+use crate::auth::{User, PERM_SERVERS_PLAYERS};
 use axum::{
     Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json,
+    Extension, Json,
 };
-use bollard::container::InspectContainerOptions;
 use sha2::{Digest, Sha256};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::time::{Duration, timeout};
 
 pub fn router<S>(state: Arc<AppState>) -> Router<S> {
     Router::new()
@@ -33,9 +32,13 @@ fn default_limit() -> i64 { 50 }
 
 async fn list_sessions(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(server_id): Path<String>,
     Query(page): Query<Pagination>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_PLAYERS) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.players"))).into_response();
+    }
     let rows = sqlx::query!(
         "SELECT id, server_id, player_uuid, player_name, joined_at, left_at, duration_seconds
          FROM player_sessions WHERE server_id = ? ORDER BY joined_at DESC LIMIT ? OFFSET ?",
@@ -63,8 +66,12 @@ async fn list_sessions(
 
 async fn online_players(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(server_id): Path<String>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_PLAYERS) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.players"))).into_response();
+    }
     let live_names = match fetch_live_online_names(&state, &server_id).await {
         Ok(names) => names,
         Err(e) => {
@@ -112,7 +119,7 @@ async fn online_players(
 
 async fn fetch_live_online_names(state: &Arc<AppState>, server_id: &str) -> Result<Vec<String>, String> {
     let row = sqlx::query!(
-        "SELECT container_id, status, rcon_port, rcon_password FROM servers WHERE id = ?",
+        "SELECT status FROM servers WHERE id = ?",
         server_id
     )
     .fetch_optional(&state.db)
@@ -124,35 +131,9 @@ async fn fetch_live_online_names(state: &Arc<AppState>, server_id: &str) -> Resu
         return Ok(vec![]);
     }
 
-    let container_id = match row.container_id {
-        Some(v) => v,
-        None => return Ok(vec![]),
-    };
-
-    let network = std::env::var("DOCKER_NETWORK").unwrap_or_else(|_| "novabox-mc-net".to_string());
-
-    let ip = state
-        .docker
-        .inspect_container(&container_id, None::<InspectContainerOptions>)
+    let out = state
+        .rcon_command(server_id, "list")
         .await
-        .map_err(|e| format!("Container inspect failed: {e}"))?
-        .network_settings
-        .and_then(|n| n.networks)
-        .and_then(|nets| nets.get(&network).and_then(|e| e.ip_address.clone()))
-        .filter(|ip| !ip.is_empty())
-        .ok_or_else(|| "Container IP unavailable".to_string())?;
-
-    let mut rcon = timeout(
-        Duration::from_secs(4),
-        crate::rcon::RconClient::connect(&ip, row.rcon_port as u16, &row.rcon_password),
-    )
-    .await
-    .map_err(|_| "RCON connect timed out".to_string())?
-    .map_err(|e| format!("RCON connect failed: {e}"))?;
-
-    let out = timeout(Duration::from_secs(6), rcon.command("list"))
-        .await
-        .map_err(|_| "RCON list timed out".to_string())?
         .map_err(|e| format!("RCON list failed: {e}"))?;
 
     Ok(parse_online_names(&out))

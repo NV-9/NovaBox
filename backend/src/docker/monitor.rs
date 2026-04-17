@@ -151,6 +151,10 @@ async fn sync_statuses(state: Arc<AppState>) {
                     )
                     .execute(&state.db)
                     .await;
+
+                    if new_status != "running" {
+                        state.invalidate_rcon(&server_id).await;
+                    }
                 }
             }
             Err(_) => {
@@ -162,6 +166,8 @@ async fn sync_statuses(state: Arc<AppState>) {
                     )
                     .execute(&state.db)
                     .await;
+
+                    state.invalidate_rcon(&server_id).await;
                 }
             }
         }

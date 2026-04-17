@@ -1,17 +1,17 @@
 use crate::AppState;
 use crate::api::models::ErrorResponse;
+use crate::auth::{User, PERM_SERVERS_MODERATION};
 use axum::{
     Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json,
+    Extension, Json,
 };
-use bollard::container::InspectContainerOptions;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::time::{Duration, timeout};
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -20,6 +20,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/:id/whitelist/state", get(whitelist_state_get).put(whitelist_state_set))
         .route("/:id/bans",            get(bans_list).post(bans_add))
         .route("/:id/bans/:name",      axum::routing::delete(bans_remove))
+        .route("/:id/ops",             get(ops_list).post(ops_add))
+        .route("/:id/ops/:name",       axum::routing::delete(ops_remove))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -146,76 +148,68 @@ async fn write_json_list<T: Serialize>(path: &str, list: &[T]) -> Result<(), Str
         .map_err(|e| e.to_string())
 }
 
-async fn server_rcon(
-    state: &Arc<AppState>,
-    server_id: &str,
-) -> Option<crate::rcon::RconClient> {
-    let row = sqlx::query!(
-        "SELECT rcon_port, rcon_password, container_id, status FROM servers WHERE id = ?",
-        server_id
-    )
-    .fetch_optional(&state.db)
-    .await
-    .ok()??;
-
-    if row.status != "running" {
-        return None;
+async fn rcon_cmd(state: &Arc<AppState>, server_id: &str, cmd: &str) {
+    match state.rcon_command(server_id, cmd).await {
+        Ok(out) => tracing::debug!(server_id=%server_id, cmd=%cmd, out=%out, "RCON ok"),
+        Err(e) => tracing::warn!(server_id=%server_id, cmd=%cmd, "RCON cmd failed: {e}"),
     }
-    let container_id = row.container_id?;
-    let network = std::env::var("DOCKER_NETWORK")
-        .unwrap_or_else(|_| "novabox-mc-net".to_string());
-
-    let ip = state
-        .docker
-        .inspect_container(&container_id, None::<InspectContainerOptions>)
-        .await
-        .ok()
-        .and_then(|i| i.network_settings)
-        .and_then(|n| n.networks)
-        .and_then(|nets| nets.get(&network).and_then(|e| e.ip_address.clone()))
-        .filter(|ip| !ip.is_empty())?;
-
-    let password = row.rcon_password.clone();
-    timeout(
-        Duration::from_secs(3),
-        crate::rcon::RconClient::connect(&ip, row.rcon_port as u16, &password),
-    )
-    .await
-    .ok()
-    .and_then(|r| r.ok())
 }
 
-async fn rcon_cmd(state: &Arc<AppState>, server_id: &str, cmd: &str) {
-    if let Some(mut rcon) = server_rcon(state, server_id).await {
-        match timeout(Duration::from_secs(4), rcon.command(cmd)).await {
-            Ok(Ok(out)) => tracing::debug!(server_id=%server_id, cmd=%cmd, out=%out, "RCON ok"),
-            Ok(Err(e))  => tracing::warn!(server_id=%server_id, "RCON cmd failed: {e}"),
-            Err(_)      => tracing::warn!(server_id=%server_id, "RCON cmd timed out"),
+async fn sync_ops_from_live(
+    state: &Arc<AppState>,
+    server_id: &str,
+    path: &str,
+    current: Vec<OpEntry>,
+) -> Vec<OpEntry> {
+    let live = match state.rcon_command(server_id, "ops").await {
+        Ok(out) => parse_live_ops_names(&out),
+        Err(e) => {
+            tracing::warn!(server_id=%server_id, error=%e, "Could not read live ops list over RCON");
+            return current;
         }
+    };
+
+    let reconciled = reconcile_ops_list(current.clone(), live);
+    if let Err(e) = write_json_list(path, &reconciled).await {
+        tracing::warn!(server_id=%server_id, error=%e, "Failed to persist reconciled ops list");
+        return current;
     }
+    reconciled
 }
 
 async fn whitelist_list(
     State(_state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let list: Vec<WhitelistEntry> = read_json_list(&whitelist_path(&id)).await;
-    Json(list)
+    Json(list).into_response()
 }
 
 async fn whitelist_state_get(
     State(_state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let enabled = whitelist_enabled_from_properties(&id).await;
-    Json(WhitelistStateResponse { enabled })
+    Json(WhitelistStateResponse { enabled }).into_response()
 }
 
 async fn whitelist_state_set(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
     Json(req): Json<SetWhitelistStateRequest>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     if let Err(e) = set_whitelist_in_properties(&id, req.enabled).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new(e))).into_response();
     }
@@ -235,9 +229,13 @@ async fn whitelist_state_set(
 
 async fn whitelist_add(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
     Json(req): Json<AddWhitelistRequest>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let path = whitelist_path(&id);
     let mut list: Vec<WhitelistEntry> = read_json_list(&path).await;
 
@@ -268,8 +266,12 @@ async fn whitelist_add(
 
 async fn whitelist_remove(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path((id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let path = whitelist_path(&id);
     let mut list: Vec<WhitelistEntry> = read_json_list(&path).await;
     let before = list.len();
@@ -291,17 +293,25 @@ async fn whitelist_remove(
 
 async fn bans_list(
     State(_state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let list: Vec<BanEntry> = read_json_list(&bans_path(&id)).await;
-    Json(list)
+    Json(list).into_response()
 }
 
 async fn bans_add(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path(id): Path<String>,
     Json(req): Json<AddBanRequest>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let path = bans_path(&id);
     let mut list: Vec<BanEntry> = read_json_list(&path).await;
 
@@ -339,8 +349,12 @@ async fn bans_add(
 
 async fn bans_remove(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
     Path((id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
     let path = bans_path(&id);
     let mut list: Vec<BanEntry> = read_json_list(&path).await;
     let before = list.len();
@@ -357,4 +371,164 @@ async fn bans_remove(
     rcon_cmd(&state, &id, &format!("pardon {}", name)).await;
 
     Json(list).into_response()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpEntry {
+    pub uuid:            String,
+    pub name:            String,
+    #[serde(default)]
+    pub level:           i64,
+    #[serde(
+        default = "default_bypass_limit",
+        rename = "bypassesPlayerLimit",
+        alias = "bypasses_player_limit"
+    )]
+    pub bypasses_player_limit: bool,
+}
+
+fn default_bypass_limit() -> bool { false }
+
+#[derive(Deserialize)]
+struct AddOpRequest {
+    name: String,
+}
+
+fn ops_path(server_id: &str) -> String {
+    format!("/servers/{}/ops.json", server_id)
+}
+
+fn parse_live_ops_names(output: &str) -> Vec<String> {
+    let normalized = output.replace('\r', "").replace('\n', " ");
+    let names = normalized
+        .split_once(':')
+        .map(|(_, right)| right.trim())
+        .unwrap_or("");
+
+    if names.is_empty() {
+        return vec![];
+    }
+
+    names
+        .split(',')
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .collect()
+}
+
+fn reconcile_ops_list(mut file_list: Vec<OpEntry>, live_names: Vec<String>) -> Vec<OpEntry> {
+    let live_lower: HashSet<String> = live_names.iter().map(|v| v.to_lowercase()).collect();
+
+    if !live_lower.is_empty() {
+        file_list.retain(|e| live_lower.contains(&e.name.to_lowercase()));
+    }
+
+    let existing_lower: HashSet<String> = file_list.iter().map(|e| e.name.to_lowercase()).collect();
+    for name in live_names {
+        if existing_lower.contains(&name.to_lowercase()) {
+            continue;
+        }
+        file_list.push(OpEntry {
+            uuid: String::new(),
+            name,
+            level: 4,
+            bypasses_player_limit: false,
+        });
+    }
+
+    file_list
+}
+
+async fn ops_list(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
+    let path = ops_path(&id);
+    let mut list: Vec<OpEntry> = read_json_list(&path).await;
+
+    if let Ok(out) = state.rcon_command(&id, "ops").await {
+        let live_names = parse_live_ops_names(&out);
+        let reconciled = reconcile_ops_list(list.clone(), live_names);
+        if reconciled.len() != list.len() || reconciled.iter().zip(list.iter()).any(|(a, b)| a.name != b.name || a.level != b.level || a.uuid != b.uuid || a.bypasses_player_limit != b.bypasses_player_limit) {
+            if let Err(e) = write_json_list(&path, &reconciled).await {
+                tracing::warn!(server_id=%id, error=%e, "Failed to persist reconciled ops list");
+            }
+            list = reconciled;
+        }
+    }
+
+    Json(list).into_response()
+}
+
+async fn ops_add(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
+    Path(id): Path<String>,
+    Json(req): Json<AddOpRequest>,
+) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
+    let path = ops_path(&id);
+    let mut list: Vec<OpEntry> = read_json_list(&path).await;
+
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(ErrorResponse::new("Name required"))).into_response();
+    }
+    if list.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
+        return (StatusCode::CONFLICT, Json(ErrorResponse::new("Player is already an op"))).into_response();
+    }
+
+    let is_selector = name.starts_with('@');
+
+    if !is_selector {
+        list.push(OpEntry {
+            uuid:                 String::new(),
+            name:                 name.clone(),
+            level:                4,
+            bypasses_player_limit: false,
+        });
+
+        if let Err(e) = write_json_list(&path, &list).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new(e))).into_response();
+        }
+    }
+
+    rcon_cmd(&state, &id, &format!("op {}", name)).await;
+    let synced = sync_ops_from_live(&state, &id, &path, list).await;
+
+    Json(synced).into_response()
+}
+
+async fn ops_remove(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<User>,
+    Path((id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !user.has_permission(PERM_SERVERS_MODERATION) {
+        return (StatusCode::FORBIDDEN, Json(ErrorResponse::new("Missing permission: servers.moderation"))).into_response();
+    }
+    let path = ops_path(&id);
+    let mut list: Vec<OpEntry> = read_json_list(&path).await;
+    let before = list.len();
+    list.retain(|e| !e.name.eq_ignore_ascii_case(&name));
+
+    if list.len() == before {
+        return (StatusCode::NOT_FOUND, Json(ErrorResponse::new("Player is not an op"))).into_response();
+    }
+
+    if let Err(e) = write_json_list(&path, &list).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new(e))).into_response();
+    }
+
+    rcon_cmd(&state, &id, &format!("deop {}", name)).await;
+    let synced = sync_ops_from_live(&state, &id, &path, list).await;
+
+    Json(synced).into_response()
 }

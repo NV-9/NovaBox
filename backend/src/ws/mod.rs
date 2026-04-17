@@ -1,12 +1,20 @@
 use crate::AppState;
+use crate::auth::PERM_SERVERS_CONSOLE;
 use axum::{
     Router,
-    extract::{Path, State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    extract::{Path, Query, State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
 };
 use futures_util::StreamExt;
+use serde::Deserialize;
 use std::sync::Arc;
+
+#[derive(Deserialize)]
+struct WsQuery {
+    token: Option<String>,
+}
 
 pub fn router<S>(state: Arc<AppState>) -> Router<S> {
     Router::new()
@@ -18,7 +26,27 @@ async fn console_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path(server_id): Path<String>,
+    Query(q): Query<WsQuery>,
 ) -> impl IntoResponse {
+    let token = match q.token {
+        Some(t) if !t.is_empty() => t,
+        _ => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let user_id = match state.auth.resolve_token(&token).await {
+        Some(uid) => uid,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let user = match state.auth.find_by_id(&user_id).await {
+        Some(u) => u,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    if !user.has_permission(PERM_SERVERS_CONSOLE) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     ws.on_upgrade(move |socket| handle_console(socket, state, server_id))
 }
 

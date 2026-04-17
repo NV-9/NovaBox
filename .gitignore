@@ -9,3 +9,5 @@ servers/
 cargo-cache/
 
 *-local.bat
+*-local.sh
+*-local.ps1

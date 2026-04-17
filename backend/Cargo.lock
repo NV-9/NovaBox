@@ -1445,9 +1445,7 @@ dependencies = [
  "minimal-lexical",
 ]
 
-[[package]]
-name = "novabox"
-version = "0.1.0"
+$11.2.0"
 dependencies = [
  "anyhow",
  "argon2",

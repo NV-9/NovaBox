@@ -1,6 +1,6 @@
 [package]
 name = "novabox"
-version = "0.1.0"
+$11.2.0"
 edition = "2021"
 
 [[bin]]

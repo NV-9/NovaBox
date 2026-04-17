@@ -8,4 +8,4 @@ data/
 servers/
 cargo-cache/
 
-release-tag-local.bat
+*-local.bat
